@@ -6,6 +6,7 @@ import org.hibernate.validator.constraints.NotEmpty;
 
 import com.vaadin.annotations.Theme;
 import com.vaadin.data.fieldgroup.BeanFieldGroup;
+import com.vaadin.data.fieldgroup.FieldGroup;
 import com.vaadin.data.fieldgroup.FieldGroup.CommitException;
 import com.vaadin.server.ErrorMessage;
 import com.vaadin.server.VaadinRequest;
@@ -20,6 +21,7 @@ import com.vaadin.ui.Field;
 import com.vaadin.ui.HorizontalLayout;
 import com.vaadin.ui.Label;
 import com.vaadin.ui.Notification;
+import com.vaadin.ui.TextField;
 import com.vaadin.ui.UI;
 import com.vaadin.ui.VerticalLayout;
 
@@ -37,13 +39,18 @@ public class VaadinUI extends UI {
 		BeanFieldGroup<Person> fg = new BeanFieldGroup<>(Person.class);
 		fg.setItemDataSource(new Person());
 		fg.setBuffered(true);
-		l.addComponent(fg.buildAndBind("Name", "name"));
-		l.addComponent(fg.buildAndBind("Age", "age"));
-		
-		l.addComponent(new Button("Validate", e -> System.out.println(fg.isValid())));
+		TextField name = (TextField) fg.buildAndBind("Name", "name");
+		name.setValidationVisible(false);
+//		name.addFocusListener(e -> name.setValidationVisible(false));
+		l.addComponent(name);
+		Field<?> age = fg.buildAndBind("Age", "age");
+		l.addComponent(age);
+		fg.isModified();
+		l.addComponent(new Button("Validate", e -> name.setValidationVisible(true)));
 		return l;
 	}
-	
+
+
 	private Component second() {
 		VerticalLayout layout = new VerticalLayout();
         Person bean = new Person();
@@ -52,9 +59,13 @@ public class VaadinUI extends UI {
         final BeanFieldGroup<Person> form =
                 new BeanFieldGroup<Person>(Person.class);
         form.setItemDataSource(bean);
-        layout.addComponent(form.buildAndBind("Name", "name"));
-        layout.addComponent(form.buildAndBind("Age", "age"));
         
+        Field<?> name = form.buildAndBind("name");
+		layout.addComponent(name);
+		((TextField)name).setDescription("some description");
+		((TextField)name).setValidationVisible(false);
+
+        layout.addComponent(form.buildAndBind("Age", "age"));
         final Label error = new Label("", ContentMode.HTML);
         error.setVisible(false);
         layout.addComponent(error);
@@ -93,6 +104,10 @@ public class VaadinUI extends UI {
 		@NotEmpty
 		private String name;
 		private int age;
+		
+		public Person() {
+			name = "";
+		}
 		
 		public String getName() {
 			return name;
