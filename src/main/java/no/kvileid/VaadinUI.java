@@ -1,127 +1,101 @@
 package no.kvileid;
 
-import javax.validation.constraints.NotNull;
+import java.util.List;
+import java.util.stream.Collectors;
 
-import org.hibernate.validator.constraints.NotEmpty;
+import javax.validation.constraints.Max;
 
+import org.hibernate.validator.constraints.NotBlank;
+
+import com.google.common.collect.Lists;
 import com.vaadin.annotations.Theme;
+import com.vaadin.data.Validator;
 import com.vaadin.data.fieldgroup.BeanFieldGroup;
-import com.vaadin.data.fieldgroup.FieldGroup.CommitException;
-import com.vaadin.server.ErrorMessage;
+import com.vaadin.data.util.BeanItemContainer;
 import com.vaadin.server.VaadinRequest;
-import com.vaadin.shared.ui.label.ContentMode;
 import com.vaadin.spring.annotation.SpringUI;
-import com.vaadin.ui.AbstractField;
-import com.vaadin.ui.Button;
-import com.vaadin.ui.Button.ClickEvent;
-import com.vaadin.ui.Button.ClickListener;
-import com.vaadin.ui.Component;
-import com.vaadin.ui.Field;
-import com.vaadin.ui.HorizontalLayout;
-import com.vaadin.ui.Label;
-import com.vaadin.ui.Notification;
-import com.vaadin.ui.TextField;
+import com.vaadin.ui.Grid;
+import com.vaadin.ui.Grid.SelectionMode;
 import com.vaadin.ui.UI;
-import com.vaadin.ui.VerticalLayout;
 
 @Theme("valo")
 @SpringUI(path = "")
 public class VaadinUI extends UI {
-    @Override
-    protected void init(VaadinRequest request) {
-        setContent(new HorizontalLayout(first(), second()));
-        setSizeFull();
-    }
+	@Override
+	protected void init(VaadinRequest request) {
+		Grid grid = new Grid();
+		BeanItemContainer<Person> container = new BeanItemContainer<>(Person.class, createPersons());
+		grid.setContainerDataSource(container);
+		grid.setEditorEnabled(true);
+		grid.setSelectionMode(SelectionMode.NONE);
+		grid.setEditorFieldGroup(new BeanFieldGroup<Person>(Person.class));
+		grid.getColumn("name").getEditorField().addValidator(new UniqueBeanValidator<Person>(grid) {
+			@Override
+			protected boolean isEqual(Object name, Person person) {
+				return person.getName().equals(name);
+			}
 
-    private Component first() {
-        VerticalLayout l = new VerticalLayout();
-        BeanFieldGroup<Person> fg = new BeanFieldGroup<>(Person.class);
-        fg.setItemDataSource(new Person());
-        fg.setBuffered(true);
-        TextField name = (TextField) fg.buildAndBind("Name", "name");
-        name.setValidationVisible(false);
-        // name.addFocusListener(e -> name.setValidationVisible(false));
-        l.addComponent(name);
-        Field<?> age = fg.buildAndBind("Age", "age");
-        l.addComponent(age);
-        fg.isModified();
-        l.addComponent(new Button("Validate", e -> name.setValidationVisible(true)));
-        return l;
-    }
+		});
+		setContent(grid);
+		setSizeFull();
+	}
 
-    private Component second() {
-        VerticalLayout layout = new VerticalLayout();
-        Person bean = new Person();
+	private List<Person> createPersons() {
+		return Lists.newArrayList(new Person("Truls", 45), new Person("Viktor", 6));
+	}
 
-        // Form for editing the bean
-        final BeanFieldGroup<Person> form =
-                new BeanFieldGroup<>(Person.class);
-        // form.setItemDataSource(bean);
+	public abstract static class UniqueBeanValidator<T> implements Validator {
+		private final Grid grid;
+		private final BeanItemContainer<T> container;
 
-        Field<?> name = form.buildAndBind("Caption name", "name");
-        layout.addComponent(name);
-        ((TextField) name).setDescription("some description");
-        ((TextField) name).setValidationVisible(false);
+		@SuppressWarnings("unchecked")
+		public UniqueBeanValidator(Grid grid) {
+			this.grid = grid;
+			this.container = (BeanItemContainer<T>) grid.getContainerDataSource();
+		}
 
-        layout.addComponent(form.buildAndBind("Age", "age"));
-        final Label error = new Label("", ContentMode.HTML);
-        error.setVisible(false);
-        layout.addComponent(error);
+		@Override
+		public void validate(Object value) throws InvalidValueException {
+			long count = getBeans().stream().filter(bean -> isEqual(value, bean)).count();
+			if (count > 0) {
+				throw new InvalidValueException("Har allerede brukt navn; " + value);
+			}
+		}
 
-        // Buffer the form content
-        form.setBuffered(true);
-        layout.addComponent(new Button("OK", new ClickListener() {
-            private static final long serialVersionUID = 8273374540088290859L;
+		protected abstract boolean isEqual(Object value, T bean);
 
-            @Override
-            public void buttonClick(ClickEvent event) {
-                try {
-                    form.commit();
-                    Notification.show("OK!");
-                    error.setVisible(false);
-                } catch (CommitException e) {
-                    for (Field<?> field : form.getFields()) {
-                        ErrorMessage errMsg = ((AbstractField<?>) field).getErrorMessage();
-                        if (errMsg != null) {
-                            error.setValue("Error in " +
-                                    field.getCaption() + ": " +
-                                    errMsg.getFormattedHtmlMessage());
-                            error.setVisible(true);
-                            break;
-                        }
-                    }
-                }
-            }
-        }));
-        return layout;
-    }
+		private List<T> getBeans() {
+			T edited = (T) grid.getEditedItemId();
+			return container.getItemIds().stream().filter(bean -> bean != edited).collect(Collectors.toList());
+		}
+	}
 
-    public static class Person {
-        private static final String bla = "blabla du må gjøre det og det";
-        @NotNull(message = bla)
-        @NotEmpty
-        private String name;
-        private int age;
+	public static class Person {
+		@NotBlank
+		private String name;
+		@Max(value = 50)
+		private int age;
 
-        public Person() {
-            name = "";
-        }
+		public Person(String name, int age) {
+			this.name = name;
+			this.age = age;
+		}
 
-        public String getName() {
-            return name;
-        }
+		public String getName() {
+			return name;
+		}
 
-        public void setName(String name) {
-            this.name = name;
-        }
+		public void setName(String name) {
+			this.name = name;
+		}
 
-        public int getAge() {
-            return age;
-        }
+		public int getAge() {
+			return age;
+		}
 
-        public void setAge(int age) {
-            this.age = age;
-        }
-    }
+		public void setAge(int age) {
+			this.age = age;
+		}
+	}
 
 }
