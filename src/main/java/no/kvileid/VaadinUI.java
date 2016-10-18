@@ -1,6 +1,7 @@
 package no.kvileid;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 import javax.validation.constraints.Max;
@@ -10,11 +11,17 @@ import org.hibernate.validator.constraints.NotBlank;
 import com.google.common.collect.Lists;
 import com.vaadin.annotations.Theme;
 import com.vaadin.data.Validator;
+import com.vaadin.data.Validator.InvalidValueException;
 import com.vaadin.data.fieldgroup.BeanFieldGroup;
+import com.vaadin.data.fieldgroup.FieldGroup;
 import com.vaadin.data.util.BeanItemContainer;
 import com.vaadin.server.VaadinRequest;
 import com.vaadin.spring.annotation.SpringUI;
+import com.vaadin.ui.Field;
 import com.vaadin.ui.Grid;
+import com.vaadin.ui.Grid.Column;
+import com.vaadin.ui.Grid.CommitErrorEvent;
+import com.vaadin.ui.Grid.EditorErrorHandler;
 import com.vaadin.ui.Grid.SelectionMode;
 import com.vaadin.ui.UI;
 
@@ -29,13 +36,17 @@ public class VaadinUI extends UI {
 		grid.setEditorEnabled(true);
 		grid.setSelectionMode(SelectionMode.NONE);
 		grid.setEditorFieldGroup(new BeanFieldGroup<Person>(Person.class));
-		grid.getColumn("name").getEditorField().addValidator(new UniqueBeanValidator<Person>(grid) {
-			@Override
-			protected boolean isEqual(Object name, Person person) {
-				return person.getName().equals(name);
-			}
 
-		});
+		grid.setEditorErrorHandler(new MyEditorErrorHandler(grid));
+
+		grid.getColumn("age").setHeaderCaption("Alder");
+		grid.getColumn("name").setHeaderCaption("Navn").getEditorField()
+				.addValidator(new UniqueBeanValidator<Person>(grid) {
+					@Override
+					protected boolean isAlreadyUsed(Object name, Person person) {
+						return person.getName().equals(name);
+					}
+				});
 		setContent(grid);
 		setSizeFull();
 	}
@@ -56,15 +67,16 @@ public class VaadinUI extends UI {
 
 		@Override
 		public void validate(Object value) throws InvalidValueException {
-			long count = getBeans().stream().filter(bean -> isEqual(value, bean)).count();
+			long count = getAllBeansExceptCurrentlyEdited().stream().filter(bean -> isAlreadyUsed(value, bean)).count();
 			if (count > 0) {
-				throw new InvalidValueException("Har allerede brukt navn; " + value);
+				throw new InvalidValueException("Har allerede brukt " + value);
 			}
 		}
 
-		protected abstract boolean isEqual(Object value, T bean);
+		protected abstract boolean isAlreadyUsed(Object value, T bean);
 
-		private List<T> getBeans() {
+		@SuppressWarnings("unchecked")
+		private List<T> getAllBeansExceptCurrentlyEdited() {
 			T edited = (T) grid.getEditedItemId();
 			return container.getItemIds().stream().filter(bean -> bean != edited).collect(Collectors.toList());
 		}
@@ -98,4 +110,56 @@ public class VaadinUI extends UI {
 		}
 	}
 
+	// Vaadin bug https://dev.vaadin.com/ticket/16806
+	public class MyEditorErrorHandler implements EditorErrorHandler {
+		private final Grid grid;
+
+		public MyEditorErrorHandler(Grid grid) {
+			this.grid = grid;
+		}
+
+		@Override
+		public void commitError(CommitErrorEvent event) {
+			Map<Field<?>, InvalidValueException> invalidFields = event.getCause().getInvalidFields();
+
+			if (!invalidFields.isEmpty()) {
+				Object firstErrorPropertyId = null;
+				Field<?> firstErrorField = null;
+
+				FieldGroup fieldGroup = event.getCause().getFieldGroup();
+				for (Column column : grid.getColumns()) {
+					Object propertyId = column.getPropertyId();
+					Field<?> field = fieldGroup.getField(propertyId);
+					if (invalidFields.keySet().contains(field)) {
+						event.addErrorColumn(column);
+
+						if (firstErrorPropertyId == null) {
+							firstErrorPropertyId = propertyId;
+							firstErrorField = field;
+						}
+					}
+				}
+
+				/*
+				 * Validation error, show first failure as
+				 * "<Column header>: <message>"
+				 */
+				String caption = grid.getColumn(firstErrorPropertyId).getHeaderCaption();
+
+				InvalidValueException v = invalidFields.get(firstErrorField);
+				event.setUserErrorMessage(caption + ": " + getRootCause(v).getLocalizedMessage());
+			} else {
+				com.vaadin.server.ErrorEvent.findErrorHandler(grid)
+						.error(new ConnectorErrorEvent(grid, event.getCause()));
+			}
+		}
+
+		private Throwable getRootCause(InvalidValueException e) {
+			if (e.getCauses() != null && e.getCauses().length > 0) {
+				return e.getCauses()[0];
+			} else {
+				return e;
+			}
+		}
+	}
 }
