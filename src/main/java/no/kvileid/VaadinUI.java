@@ -1,8 +1,8 @@
 package no.kvileid;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import javax.validation.constraints.Max;
 
@@ -41,10 +41,20 @@ public class VaadinUI extends UI {
 
 		grid.getColumn("age").setHeaderCaption("Alder");
 		grid.getColumn("name").setHeaderCaption("Navn").getEditorField()
-				.addValidator(new UniqueBeanValidator<Person>(grid) {
+				.addValidator(new UniqueBeanValidator<Person>() {
 					@Override
 					protected boolean isAlreadyUsed(Object name, Person person) {
 						return person.getName().equals(name);
+					}
+
+					@Override
+					protected Collection<Person> getAllBeans() {
+						return container.getItemIds();
+					}
+
+					@Override
+					protected Person getEditedBean() {
+						return (Person) grid.getEditedItemId();
 					}
 				});
 		setContent(grid);
@@ -56,30 +66,18 @@ public class VaadinUI extends UI {
 	}
 
 	public abstract static class UniqueBeanValidator<T> implements Validator {
-		private final Grid grid;
-		private final BeanItemContainer<T> container;
-
-		@SuppressWarnings("unchecked")
-		public UniqueBeanValidator(Grid grid) {
-			this.grid = grid;
-			this.container = (BeanItemContainer<T>) grid.getContainerDataSource();
-		}
-
 		@Override
 		public void validate(Object value) throws InvalidValueException {
-			long count = getAllBeansExceptCurrentlyEdited().stream().filter(bean -> isAlreadyUsed(value, bean)).count();
+			T editedBean = getEditedBean();
+			long count = getAllBeans().stream().filter(bean -> bean != editedBean).filter(bean -> isAlreadyUsed(value, bean)).count();
 			if (count > 0) {
 				throw new InvalidValueException("Har allerede brukt " + value);
 			}
 		}
 
 		protected abstract boolean isAlreadyUsed(Object value, T bean);
-
-		@SuppressWarnings("unchecked")
-		private List<T> getAllBeansExceptCurrentlyEdited() {
-			T edited = (T) grid.getEditedItemId();
-			return container.getItemIds().stream().filter(bean -> bean != edited).collect(Collectors.toList());
-		}
+		protected abstract Collection<T> getAllBeans();
+		protected abstract T getEditedBean();
 	}
 
 	public static class Person {
